@@ -1,0 +1,18 @@
+{
+ "empty": {
+  "width": 153,
+  "text": "      (two minutes on this machine), and the cache stays warm;\n    - or keep the slower path, which needs no new dependency.\n\n\u001b[38;5;246m✻\u001b[39m \u001b[38;5;246mBaked for 33s · done 3:02 AM\u001b[39m\n                                                                                                                 \u001b[38;5;114m✔ Update installed · Restart to update\u001b[39m\n\u001b[38;5;244m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── demo-project ─\n\u001b[39m❯ \n\u001b[38;5;244m─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n\u001b[39m  \u001b[38;5;220m⏵⏵ auto mode on\u001b[38;5;246m (shift+tab to cycle) · ← 2 agents\u001b[39m"
+ },
+ "suggestion": {
+  "width": 168,
+  "text": "\n\u001b[38;5;246m✻\u001b[39m \u001b[38;5;246mCrunched for 31s · done 4:22 AM\u001b[39m\n\u001b[38;5;246m  ⎿  Read \u001b[1mmemory/build-cache.md\u001b[0m\u001b[38;5;246m (38 lines)\u001b[39m\n\u001b[38;5;246m  ⎿  Referenced file \u001b[1mnotes/build-cache.md\u001b[0m\n                                                                                                                                \u001b[38;5;114m✔ Update installed · Restart to update\u001b[39m\n\u001b[38;5;244m───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── demo-project ─\n\u001b[39m❯ \u001b[2madd it, and go with your recommendation\u001b[0m\n\u001b[38;5;244m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n\u001b[39m  \u001b[38;5;220m⏵⏵ auto mode on\u001b[38;5;246m (shift+tab to cycle) · ← 2 agents\u001b[39m"
+ },
+ "busy": {
+  "width": 161,
+  "text": "\u001b[38;5;246m  ⎿  $ sleep 900; cd /home/user/demo-project/bench && ./run.sh --iterations 20 --warmup 5 --output out/results.csv --compare baseline.csv\n\u001b[39m     \u001b[38;5;246m--threshold 0.05 && python3 analyze.py out/results.csv --md\u001b[39m\n\n\u001b[38;5;174m·\u001b[39m \u001b[38;5;174mFluttering… \u001b[38;5;246m(21m 42s · ↓\u001b[39m \u001b[38;5;246m125.9k tokens · \u001b[38;5;248mthinking with max effort\u001b[38;5;246m)\u001b[39m\n                                                                                                                         \u001b[38;5;114m✔ Update installed · Restart to update\u001b[39m\n\u001b[38;5;244m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── demo-project ─\n\u001b[38;5;246m❯ \u001b[39m\n\u001b[38;5;244m─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n\u001b[39m  \u001b[38;5;220m⏵⏵ auto mode on\u001b[38;5;246m · \u001b[38;5;44m1 shell\u001b[38;5;246m · esc to interrupt · ← 2 agents · ↓ to manage\u001b[39m"
+ },
+ "permission": {
+  "width": 153,
+  "text": "\u001b[39m \u001b[2m│\u001b[0m /home/user/demo-project/vendor/lib resolves through a symlink to /home/user/src/lib,\n \u001b[2m│\u001b[0m which is outside the allowed working directories\n\n Do you want to proceed?\n \u001b[38;5;153m❯\u001b[39m \u001b[38;5;246m1. \u001b[38;5;153mYes\u001b[39m\n   \u001b[38;5;246m2. \u001b[39mYes, and always allow access to \u001b[1m/home/user/src/lib\u001b[0m from this project\n   \u001b[38;5;246m3. \u001b[39mNo\n\n \u001b[38;5;246mEsc to cancel · Tab to amend\u001b[39m"
+ }
+}
