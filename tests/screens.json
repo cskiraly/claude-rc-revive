@@ -14,5 +14,13 @@
  "permission": {
   "width": 153,
   "text": "\u001b[39m \u001b[2m│\u001b[0m /home/user/demo-project/vendor/lib resolves through a symlink to /home/user/src/lib,\n \u001b[2m│\u001b[0m which is outside the allowed working directories\n\n Do you want to proceed?\n \u001b[38;5;153m❯\u001b[39m \u001b[38;5;246m1. \u001b[38;5;153mYes\u001b[39m\n   \u001b[38;5;246m2. \u001b[39mYes, and always allow access to \u001b[1m/home/user/src/lib\u001b[0m from this project\n   \u001b[38;5;246m3. \u001b[39mNo\n\n \u001b[38;5;246mEsc to cancel · Tab to amend\u001b[39m"
+ },
+ "stashed-2.1.310": {
+  "width": 80,
+  "text": "                                                 \u001b[38;5;246m◉ xhigh · /effort · › stashed\u001b[39m\n\u001b[38;5;244m────────────────────────────────────────────────────────────────────────────────\n\u001b[39m❯ second draft\n\u001b[38;5;244m────────────────────────────────────────────────────────────────────────────────\n\u001b[39m  \u001b[38;5;220m⏵⏵ auto mode on\u001b[38;5;246m (shift+tab to cycle)\u001b[39m"
+ },
+ "slash-menu-2.1.310": {
+  "width": 80,
+  "text": "  \u001b[38;5;153m❯ /\u001b[1mrem\u001b[0m\u001b[38;5;153mote-env                     Choose the default environment for cloud\u001b[39m\n                                    \u001b[38;5;153magents\u001b[39m\n  \u001b[38;5;246m  /\u001b[1m\u001b[39mrem\u001b[0m\u001b[38;5;246mote-control                 Control this session from your phone or\u001b[39m\n                                    \u001b[38;5;246mclaude.ai/code\u001b[39m\n\u001b[38;5;244m────────────────────────────────────────────────────────────────────────────────\n\u001b[39m❯ /rem\n\u001b[38;5;244m────────────────────────────────────────────────────────────────────────────────\n\u001b[39m  \u001b[38;5;220m⏵⏵ auto mode on\u001b[38;5;246m (shift+tab to cycle)\u001b[39m"
  }
 }

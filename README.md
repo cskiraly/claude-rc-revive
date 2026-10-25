@@ -30,7 +30,8 @@ rc-revive install-service         # a systemd user service that runs `rc-revive 
 To install from GitHub instead: `uv tool install git+https://github.com/cskiraly/claude-rc-revive`.
 
 The service runs while you're logged in. To keep it running without a login session (as tmux sessions often do),
-enable lingering once: `sudo loginctl enable-linger $USER`.
+enable lingering once: `sudo loginctl enable-linger $USER`. After upgrading rc-revive, run `rc-revive install-service`
+again: the running service keeps the old code until then.
 
 ## How it works
 
@@ -45,15 +46,22 @@ the current one: a session can notice a switch late. RC that you turn off yourse
 **Typing**, only when it's safe:
 
 - the pane shows Claude Code's input box: no dialog, menu, permission prompt or question waiting, no tmux copy
-  mode;
+  mode, and the window's panes aren't synchronized (`synchronize-panes` would send the keys to every pane);
 - nobody pressed a key in that tmux session for 15 seconds;
 - a draft on the input line goes to Claude Code's stash first (Ctrl+S), and comes back by itself after the command.
-  A suggested prompt (dim text) needs nothing: typing replaces it. A draft with an older stash next to it makes it
-  wait, since a second stash would overwrite the first.
+  A suggested prompt (dim text) needs nothing: typing replaces it. It leaves a draft alone, and waits, when an older
+  stash is next to it (a second stash would overwrite the first); when the draft has a command or file menu open
+  (`/…`, `@…`), which hides the stash; and when the session's Claude Code version is one it wasn't checked
+  against for how the stash shows (2.1.308 and later 2.1 releases are). If the draft goes to the stash but the stash
+  doesn't show, it pops the draft back and stops;
+- with vim keys (`/vim`), only in INSERT mode and with an empty input line: NORMAL mode doesn't show, and there the
+  typed text would run as commands.
 
-It presses Enter only when the input line reads exactly what it typed, then checks the session record for a new RC
-session and that the draft came back. While it isn't safe it tries again every 5 seconds, for up to 6 hours. On
-anything unexpected it stops, takes back what it typed if it can, and logs the screen.
+It presses Enter only when the input line reads exactly what it typed, after a last look that nobody typed meanwhile
+and that RC didn't come on by itself. Then it checks the session record for a new RC session and that the draft came
+back. While it isn't safe it tries again every 5 seconds; it gives up 6 hours after the switch, counted from when the
+session stopped waiting for an answer. On anything unexpected it stops, takes back what it typed, and logs the
+screen.
 
 **Why the name:** after a switch, Claude Code carries nothing of the conversation over to the new account, so a bare
 `/remote-control` gets a title like `<hostname>-<adjective>-<noun>` in the Claude app. A name typed with the command
@@ -72,16 +80,18 @@ rc-revive install-service    run `watch` as a systemd user service, now and afte
 rc-revive uninstall-service  stop that service and remove it
 ```
 
-The log is `~/.local/state/rc-revive/log`, one JSON line per event (`switch`, `rc-off`, `lost-to-switch`,
-`left-off`, `wait`, `ok`, `failed`, `give-up`), also in the journal (`journalctl --user -u rc-revive`). The screen
-of every failure goes to `~/.local/state/rc-revive/screens/`.
+The log is `~/.local/state/rc-revive/log` (`$XDG_STATE_HOME/rc-revive/log`), one JSON line per event, in local
+time: `start`, `switch` (with the accounts' emails), `rc-on`, `rc-off`, `lost-to-switch`, `left-off`, `wait`, `ok`,
+`failed`, `give-up` and `error`. It's also in the journal (`journalctl --user -u rc-revive`). The screen of every
+failure goes to `~/.local/state/rc-revive/screens/`. `revive` exits with 1 unless every session it was given got RC
+back.
 
 ## Caveats
 
 - Only sessions in tmux, and only those using the default config directory (`~/.claude`).
 - A session that is waiting on a permission prompt or a question gets RC back only after you answer it there,
-  since until then its input box isn't showing. After 6 hours rc-revive gives up on it (`rc-revive revive lost`
-  tries again).
+  since until then its input box isn't showing. A session it gave up on can be revived by hand:
+  `rc-revive revive <pid or tmux session>`.
 - If you type into a session in the second it takes, your keys and its keys mix. The 15-second quiet check makes
   that unlikely.
 - In a session with an empty input line and a draft of yours in the stash, Claude Code puts that draft back on the
@@ -92,14 +102,14 @@ The real fix belongs in Claude Code: after an account change, start RC again for
 
 ## Tests
 
-- `uv run pytest`: the screen reader on panes captured from Claude Code (empty, suggestion, busy, permission prompt)
-  and variants of them, the transcript reader, what it types, the service file, and the watcher over time with
-  stubs. Nothing is typed.
+- `uv run pytest`: the screen reader on panes captured from Claude Code (empty, suggestion, busy, permission prompt,
+  a stash, the slash menu) and variants of them; the transcript reader; what it types, and when it waits, on a fake
+  tmux pane; the service file; the watcher over time with stubs. Nothing is typed.
 - `tests/live-test.sh`: on a throwaway Claude Code session in its own tmux session, a draft goes to the stash, RC
   comes on titled with the session's name, and the draft comes back; a draft plus an older stash is refused. It
   starts and disconnects two RC sessions under your current account (they show up in the Claude app for a moment),
   and sends no prompt to the model. Run it from a directory Claude Code already trusts; `CLAUDE=<binary>` tests
-  another Claude Code version.
+  another Claude Code version. It needs `jq`.
 
 ## Uninstall
 

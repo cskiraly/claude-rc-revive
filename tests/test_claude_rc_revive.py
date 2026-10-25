@@ -38,11 +38,13 @@ DRAFT = EMPTY.replace("❯\xa0", "❯\xa0half a sentence, and")
 # --- the screen -----------------------------------------------------------------------------------------------
 
 def test_empty_input_box():
-    assert read("empty") == {"mode": "prompt", "kind": "empty", "typed": "", "stashed": False}
+    assert read("empty") == {"mode": "prompt", "kind": "empty", "typed": "", "stashed": False,
+                             "insert": False}
 
 
 def test_a_suggested_prompt_is_not_a_draft():
-    assert read("suggestion") == {"mode": "prompt", "kind": "suggestion", "typed": "", "stashed": False}
+    assert read("suggestion") == {"mode": "prompt", "kind": "suggestion", "typed": "", "stashed": False,
+                                  "insert": False}
 
 
 def test_a_busy_session_still_shows_its_input_box():
@@ -55,7 +57,7 @@ def test_a_permission_prompt_has_no_input_box():
 
 def test_a_draft():
     assert read("empty", DRAFT) == {"mode": "prompt", "kind": "draft", "typed": "half a sentence, and",
-                                    "stashed": False}
+                                    "stashed": False, "insert": False}
 
 
 def test_a_draft_on_two_lines():
@@ -154,18 +156,216 @@ def test_the_typed_command_with_the_name():
     assert read("empty", typed)["typed"] == "/remote-control demo-project-85"
 
 
+def test_a_real_stash_above_the_box():  # Claude Code 2.1.310 shows it above the input box, next to the effort
+    assert read("stashed-2.1.310") == {"mode": "prompt", "kind": "draft", "typed": "second draft", "stashed": True,
+                                       "insert": False}
+
+
+def test_the_slash_menu_hides_the_stash():  # the same session, with a stash, while typing /rem
+    s = read("slash-menu-2.1.310")
+    assert s["typed"] == "/rem" and not s["stashed"], "why a draft that opens a menu isn't stashed"
+
+
+def test_vim_insert_mode():
+    assert read("empty", EMPTY.replace("(shift+tab to cycle)", "(shift+tab to cycle) · -- INSERT --"))["insert"]
+    assert not read("empty")["insert"]
+
+
+def test_versions_checked_for_the_stash():
+    assert rr.stash_checked("2.1.308") and rr.stash_checked("2.1.310") and rr.stash_checked("2.1.400")
+    assert not rr.stash_checked("2.1.300") and not rr.stash_checked("2.2.0") and not rr.stash_checked("3.0.1")
+    assert not rr.stash_checked(None) and not rr.stash_checked("2.1.x") and not rr.stash_checked("2.1")
+
+
+# --- typing, on a fake tmux pane ----------------------------------------------------------------------------------
+
+RULE = "\x1b[38;5;244m" + "─" * 120
+
+
+class Pane:
+    """A tmux pane with Claude Code's input box (as 2.1.310 draws it), driven by the keys rc-revive sends: typing,
+    Backspace, Ctrl+S (stash the line, or pop the stash into an empty one), Enter (run the command; Claude Code then
+    puts a stashed draft back). The record's RC goes on when Enter submits /remote-control."""
+
+    def __init__(self, st, line="", stash=None, show_stash=True, lag=0, mangle=False, synced=False):
+        self.st, self.line, self.stash, self.show_stash = st, line, stash, show_stash
+        self.lag, self.mangle, self.synced, self.sent = lag, mangle, synced, []
+
+    def render(self):
+        line = self.line[:9] if self.lag > 0 else self.line
+        self.lag -= 1
+        marks = "◉ xhigh · /effort" + (" · › stashed" if self.stash is not None and self.show_stash else "")
+        return "\n".join([" " * 40 + f"\x1b[38;5;246m{marks}\x1b[39m", RULE, f"\x1b[39m❯\xa0{line}", RULE,
+                          "\x1b[39m  \x1b[38;5;220m⏵⏵ auto mode on\x1b[38;5;246m (shift+tab to cycle)\x1b[39m"])
+
+    def press(self, keys):
+        self.sent.append(keys)
+        if keys[0] == "-l":
+            self.line += keys[1][:-1] if self.mangle else keys[1]
+            return
+        for k in keys:
+            if k == "BSpace":
+                self.line = self.line[:-1]
+            elif k == "C-s" and self.line:
+                self.stash, self.line = self.line, ""
+            elif k == "C-s" and self.stash is not None:
+                self.line, self.stash = self.stash, None
+            elif k == "Enter" and self.line.startswith("/remote-control"):
+                self.st["rec"]["bridgeSessionId"] = "session_NEW"
+                self.line = ""
+                if self.stash is not None:  # "Draft restored"
+                    self.line, self.stash = self.stash, None
+
+    def tmux(self, *args):
+        if args[0] == "display-message":
+            return f"%9\t4242\t0\t0\tdemo\t120\t{int(self.synced)}\n"
+        if args[0] == "capture-pane":
+            return self.render()
+        if args[0] == "send-keys":
+            self.press(list(args[3:]))
+            return ""
+        if args[0] == "list-clients":
+            return f"demo\t{int(self.st['key'])}\n"
+        if args[0] == "list-sessions":
+            return "demo: 1 windows\n"
+
+
+@pytest.fixture
+def typing(monkeypatch):
+    """revive_now on a fake pane: a fake clock, a record that Enter turns RC on in, no vim, a 2.1.310 session."""
+    st = {"t": 1000.0, "key": 0, "vim": False,
+          "rec": {"pid": 4242, "tmux": "demo:@1.%9", "name": "demo-project", "version": "2.1.310",
+                  "bridgeSessionId": None}}
+
+    def sleep(s):
+        st["t"] += s
+    monkeypatch.setattr(rr, "time", types.SimpleNamespace(time=lambda: st["t"], sleep=sleep, strftime=time.strftime))
+    monkeypatch.setattr(rr, "runs_in", lambda pid, pane_pid: True)
+    monkeypatch.setattr(rr, "record", lambda pid: st["rec"])
+    monkeypatch.setattr(rr, "vim_mode", lambda: st["vim"])
+
+    def run(**kw):
+        pane = Pane(st, **kw)
+        monkeypatch.setattr(rr, "tmux", pane.tmux)
+        return pane, rr.revive_now(4242, st["rec"])
+    run.st = st
+    return run
+
+
+def test_an_empty_line(typing):
+    pane, (outcome, detail) = typing()
+    assert outcome == "ok" and "session_NEW" in detail
+    assert ["-l", "/remote-control demo-project"] in pane.sent and pane.sent[-1] == ["Enter"]
+
+
+def test_a_draft_goes_to_the_stash_and_comes_back(typing):
+    pane, (outcome, detail) = typing(line="half a sentence, and")
+    assert outcome == "ok" and "the draft is back" in detail and pane.line == "half a sentence, and"
+    assert pane.sent[0] == ["C-s"]
+
+
+def test_a_draft_next_to_a_stash_waits(typing):
+    pane, (outcome, detail) = typing(line="new draft", stash="old draft")
+    assert outcome == "wait" and not pane.sent and pane.stash == "old draft"
+
+
+def test_a_draft_with_a_menu_open_waits(typing):
+    for draft in ("/rem", "see @no"):
+        pane, (outcome, detail) = typing(line=draft)
+        assert outcome == "wait" and "menu" in detail and not pane.sent
+
+
+def test_a_draft_on_an_unchecked_version_waits(typing):
+    typing.st["rec"]["version"] = "2.2.0"
+    pane, (outcome, detail) = typing(line="a draft")
+    assert outcome == "wait" and "2.2.0" in detail and not pane.sent
+    pane, (outcome, detail) = typing()  # an empty line needs no stash
+    assert outcome == "ok"
+
+
+def test_synchronized_panes_wait(typing):
+    pane, (outcome, detail) = typing(synced=True)
+    assert outcome == "wait" and "synchronize" in detail and not pane.sent
+
+
+def test_someone_typing_waits(typing):
+    typing.st["key"] = typing.st["t"] - 3
+    pane, (outcome, detail) = typing()
+    assert outcome == "wait" and not pane.sent
+
+
+def test_vim_mode(typing):
+    typing.st["vim"] = True
+    pane, (outcome, detail) = typing()
+    assert outcome == "wait" and "INSERT" in detail and not pane.sent, "NORMAL mode doesn't show: no typing"
+
+
+def test_no_stash_seen_pops_the_draft_back(typing):
+    pane, (outcome, detail) = typing(line="my draft", show_stash=False)
+    assert outcome == "failed" and "back on the input line" in detail
+    assert pane.line == "my draft" and pane.stash is None and pane.sent == [["C-s"], ["C-s"]]
+
+
+def test_a_wrong_line_is_taken_back(typing):
+    pane, (outcome, detail) = typing(line="my draft", mangle=True)
+    assert outcome == "failed" and ["Enter"] not in pane.sent
+    assert pane.line == "my draft" and pane.stash is None, "the typing deleted, the draft popped back"
+
+
+def test_take_back_when_the_screen_lags(typing, monkeypatch):
+    pane = Pane(typing.st, line="/remote-control demo-project", lag=1)  # the first look shows only "/remote-c"
+    monkeypatch.setattr(rr, "tmux", pane.tmux)
+    rr.take_back("%9", 120, "/remote-control demo-project", False)
+    assert pane.line == ""
+
+
+def test_a_last_look_before_enter(typing, monkeypatch):
+    # RC comes on by itself while the command is typed: Enter would open its menu instead
+    monkeypatch.setattr(rr, "record", lambda pid: dict(typing.st["rec"], bridgeSessionId="session_OWN"))
+    pane, (outcome, detail) = typing(line="my draft")
+    assert outcome == "wait" and ["Enter"] not in pane.sent and pane.line == "my draft"
+
+
+def test_an_unreachable_tmux_server_waits(typing, monkeypatch):
+    monkeypatch.setattr(rr, "tmux", lambda *args: None)
+    assert rr.revive_now(4242, typing.st["rec"])[0] == "wait"
+
+
 # --- the service and the command line ---------------------------------------------------------------------------
 
 def test_the_service_runs_this_python(monkeypatch):
+    monkeypatch.setattr(rr.shutil, "which", lambda name: "/usr/bin/tmux")
+    monkeypatch.delenv("TMUX_TMPDIR", raising=False)
     monkeypatch.setattr(rr.sys, "executable", "/home/u/.local/share/uv/tools/claude-rc-revive/bin/python")
-    assert "\nExecStart=/home/u/.local/share/uv/tools/claude-rc-revive/bin/python -m claude_rc_revive watch\n" in rr.unit_text()
+    unit = rr.unit_text()
+    assert "\nExecStart=/home/u/.local/share/uv/tools/claude-rc-revive/bin/python -m claude_rc_revive watch\n" in unit
+    assert "PATH" not in unit, "tmux is on the system's PATH: nothing to add"
     monkeypatch.setattr(rr.sys, "executable", "/opt/my tools/bin/python")
     assert '\nExecStart="/opt/my tools/bin/python" -m claude_rc_revive watch\n' in rr.unit_text()
+    monkeypatch.setattr(rr.sys, "executable", "/opt/50%/$x/python")
+    assert "\nExecStart=/opt/50%%/$$x/python -m claude_rc_revive watch\n" in rr.unit_text(), "specifiers, variables"
+
+
+def test_the_service_reaches_this_tmux(monkeypatch):
+    monkeypatch.setattr(rr.shutil, "which", lambda name: "/nix/store/x-tmux/bin/tmux")
+    monkeypatch.setenv("TMUX_TMPDIR", "/run/user/1000/tmux")
+    unit = rr.unit_text()
+    assert '\nEnvironment="PATH=/nix/store/x-tmux/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"\n' in unit
+    assert '\nEnvironment="TMUX_TMPDIR=/run/user/1000/tmux"\n' in unit
+
+
+def test_no_service_from_a_temporary_environment(tmp_path, monkeypatch):
+    monkeypatch.setattr(rr, "HOME", tmp_path)
+    monkeypatch.setattr(rr.sys, "executable", "/home/u/.cache/uv/builds-v0/.tmpAbc/bin/python")
+    with pytest.raises(SystemExit) as e:
+        rr.install_service()
+    assert "temporary environment" in str(e.value.code) and not (tmp_path / ".config").exists()
 
 
 def test_install_and_uninstall_service(tmp_path, monkeypatch):
     calls = []
     monkeypatch.setattr(rr, "HOME", tmp_path)
+    monkeypatch.setattr(rr.sys, "executable", "/home/u/.local/share/uv/tools/claude-rc-revive/bin/python")
     monkeypatch.setattr(rr.subprocess, "run", lambda args, **kw: calls.append(args) or
                         subprocess.CompletedProcess(args, 0, "", ""))
     unit = tmp_path / ".config/systemd/user/rc-revive.service"
@@ -261,3 +461,35 @@ def test_watcher(monkeypatch):
 
     events = {json.loads(line)["event"] for line in open(rr.LOG)}
     assert {"switch", "rc-on", "rc-off", "lost-to-switch", "left-off", "ok", "wait", "give-up"} <= events
+
+
+def test_a_session_waiting_for_an_answer_is_not_given_up(monkeypatch):
+    st = {"t": 50000.0, "acct": dict(A, email="two")}
+    monkeypatch.setattr(rr, "time", types.SimpleNamespace(time=lambda: st["t"], sleep=lambda s: None,
+                                                          strftime=time.strftime))
+    monkeypatch.setattr(rr, "machine_account", lambda: st["acct"])
+    rec = {"pid": 7, "tmux": "s7:@1.%7", "name": "s7", "bridgeSessionId": None, "status": "waiting",
+           "waitingFor": "input needed"}
+    monkeypatch.setattr(rr, "records", lambda: {7: rec})
+    monkeypatch.setattr(rr, "revive", lambda pid, r: ("wait", "the session is waiting (input needed)"))
+    pending = {7: {"off": st["t"], "on": st["t"], "bridge": "session_A7", "decided": True, "why": None,
+                   "since": st["t"]}}
+    st["t"] += rr.GIVE_UP + 3600
+    rr.poll(st["acct"], {}, pending, [])
+    assert 7 in pending, "it waited for an answer for 7 h: still pending"
+    rec.update(status="idle", waitingFor=None)
+    st["t"] += 60
+    rr.poll(st["acct"], {}, pending, [])
+    assert 7 in pending, "answered a minute ago: the clock started then"
+    st["t"] += rr.GIVE_UP
+    rr.poll(st["acct"], {}, pending, [])
+    assert 7 not in pending, "6 h after the answer, still not safe: given up"
+
+
+def test_revive_exits_1_unless_revived(monkeypatch):
+    monkeypatch.setattr(rr, "records", lambda: {7: {"pid": 7, "tmux": "s7:@1.%7", "name": "s7"}})
+    monkeypatch.setattr(rr, "record", lambda pid: None)
+    monkeypatch.setattr(rr, "revive", lambda pid, rec: ("failed", "tmux pane %7 is gone"))
+    assert rr.main(["revive", "7"]) == 1
+    monkeypatch.setattr(rr, "revive", lambda pid, rec: ("ok", "Remote Control session session_X"))
+    assert rr.main(["revive", "7"]) == 0

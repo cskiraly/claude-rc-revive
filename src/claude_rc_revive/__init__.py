@@ -12,24 +12,31 @@ it ran as another account than the machine's current one (a session can notice a
 was turned off by hand, which Claude Code marks in the transcript (an empty bridge-session entry).
 
 It types only when that is safe:
-- the pane shows Claude Code's input box (no dialog, menu or tmux copy mode), the session isn't waiting on a
-  permission prompt or a question, and no tmux client on that tmux session had a key press for 15 s;
+- the pane shows Claude Code's input box (no dialog, menu or tmux copy mode, no synchronized panes), the session
+  isn't waiting on a permission prompt or a question, and no tmux client on that tmux session had a key press for
+  15 s; with vim keys, only in INSERT mode and with an empty line;
 - a draft on the input line goes to Claude Code's stash first (Ctrl+S), and Claude Code puts it back by
-  itself after the command. A suggested prompt (dim text) needs nothing: typing replaces it. A draft with an
-  older stash next to it makes it wait, since a second stash would overwrite the first;
-- Enter only when the input line reads exactly what it typed; afterwards it checks for a new RC session and
-  that the draft is back.
+  itself after the command. A suggested prompt (dim text) needs nothing: typing replaces it. A draft makes it
+  wait when an older stash is next to it (a second stash would overwrite the first), when a menu is open over it,
+  or on a Claude Code version not checked for how it shows the stash;
+- Enter only when the input line reads exactly what it typed, after a last look; afterwards it checks for a new
+  RC session and that the draft is back.
 It makes one attempt per session and switch. Whatever goes wrong is logged with the screen, for you.
 """
 
-import fcntl
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
 from pathlib import Path
+
+if not sys.platform.startswith("linux"):  # it finds sessions' panes through /proc, and runs as a systemd user service
+    raise ImportError("claude-rc-revive runs on Linux only: it needs tmux, /proc and systemd")
+
+import fcntl  # after the check: Windows has none
 
 __version__ = "0.1.0"
 
@@ -57,10 +64,11 @@ COMMAND = "/remote-control"
 NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ._-]*")  # a session name that is safe to type after the command
 POLL = 5  # seconds between looks at the sessions
 QUIET = 15  # seconds without a key press from a tmux client on the session before typing into it
-GIVE_UP = 6 * 3600  # a session that never becomes safe to type into is left alone after this long
+GIVE_UP = 6 * 3600  # a session that doesn't get safe to type into this long after the switch is left alone
 CONNECT = 30  # seconds for the session to report its new RC session after the command
 SWITCH_SLACK = 60  # an account change this long before RC was last seen on still counts as its cause
 SETTLE = 10  # seconds after RC goes off before deciding why: a disconnect by hand writes its transcript entry
+STASH_SEEN = (2, 1, 308)  # the first Claude Code version whose stash indicator was checked (through 2.1.310)
 ANSI = re.compile(r"\x1b\[([0-9;:?]*)([A-Za-z])|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[()][0-9A-Za-z]|\x1b[=>78]")
 
 
@@ -113,7 +121,8 @@ def read_screen(text, width):
       mode     "prompt" (❯) or "bash" (!)
       kind     "empty", "suggestion" (only dim text: a suggested prompt or a placeholder) or "draft"
       typed    the text on the input line that isn't dim, whitespace collapsed
-      stashed  whether Claude Code shows "› stashed" (a draft in its stash)"""
+      stashed  whether Claude Code shows "› stashed" (a draft in its stash), above the box or below it
+      insert   whether it shows vim's insert mode (-- INSERT --)"""
     rows, dim = [], False
     for line in text.split("\n"):
         row, dim = cells(line, dim)
@@ -138,6 +147,7 @@ def read_screen(text, width):
         "kind": "empty" if not ink else "suggestion" if all(d for _, d in ink) else "draft",
         "typed": " ".join("".join(" " if d else c for c, d in content).split()),
         "stashed": any("› stashed" in v for v in around),
+        "insert": any("-- INSERT --" in v for v in around),
     }
 
 
@@ -152,12 +162,13 @@ def tmux(*args):
 
 
 def pane_info(pane):
-    out = tmux("display-message", "-p", "-t", pane,
-               "#{pane_id}\t#{pane_pid}\t#{pane_in_mode}\t#{pane_dead}\t#{session_name}\t#{pane_width}")
+    out = tmux("display-message", "-p", "-t", pane, "#{pane_id}\t#{pane_pid}\t#{pane_in_mode}\t#{pane_dead}\t"
+               "#{session_name}\t#{pane_width}\t#{pane_synchronized}")
     parts = (out or "").rstrip("\n").split("\t")
-    if len(parts) != 6 or parts[0] != pane or parts[3] == "1":
+    if len(parts) != 7 or parts[0] != pane or parts[3] == "1":
         return None
-    return {"pid": int(parts[1]), "in_mode": parts[2] == "1", "session": parts[4], "width": int(parts[5])}
+    return {"pid": int(parts[1]), "in_mode": parts[2] == "1", "session": parts[4], "width": int(parts[5]),
+            "synced": parts[6] == "1"}
 
 
 def screen(pane, width):
@@ -246,6 +257,25 @@ def machine_account():
     return None
 
 
+def vim_mode():
+    """Whether Claude Code's input box takes vim keys (/vim sets editorMode). In NORMAL mode, which it doesn't show,
+    typed text would run as commands."""
+    try:
+        return json.loads(CONFIG.read_text()).get("editorMode") == "vim"
+    except (OSError, ValueError, AttributeError):
+        return True  # can't tell: be careful
+
+
+def stash_checked(version):
+    """Whether this Claude Code version shows a stash the way rc-revive was checked against (2.1.308 to 2.1.310, and
+    later 2.1 releases). With a draft on the line, a stash it can't see would be overwritten by the next Ctrl+S."""
+    try:
+        v = tuple(int(x) for x in str(version).split(".")[:3])
+    except ValueError:
+        return False
+    return len(v) == 3 and v >= STASH_SEEN and v[:2] == STASH_SEEN[:2]
+
+
 def same(a, b):
     return bool(a and b and a.get("uuid")) and (a["uuid"], a.get("org")) == (b.get("uuid"), b.get("org"))
 
@@ -330,21 +360,40 @@ def revive(pid, rec):
         return revive_now(pid, record(pid) or rec)
 
 
+def take_back(pane, width, cmd, stashed):
+    """Delete what was typed of cmd, and pop the draft back from the stash. The screen can lag behind the keys, so
+    it deletes what the line shows and looks again, a few times. The last look."""
+    s = screen(pane, width)
+    for _ in range(5):
+        if not (s and s["typed"] and cmd.startswith(s["typed"])):
+            break  # done, or something else is on the line: leave that alone
+        keys(pane, *["BSpace"] * len(s["typed"]))
+        s = settle(pane, width, lambda s: s and not s["typed"])
+    if stashed and s and not s["typed"] and s["stashed"]:
+        keys(pane, "C-s")
+        s = settle(pane, width, lambda s: s and s["kind"] == "draft")
+    return s
+
+
 def revive_now(pid, rec):
     pane = (rec.get("tmux") or "").rpartition(".")[2]
     if not pane.startswith("%"):
         return "failed", "the session doesn't run in tmux"
     info = pane_info(pane)
     if not info:
+        if tmux("list-sessions") is None:  # tmux not on the service's PATH, or another socket
+            return "wait", "can't reach the tmux server"
         return "failed", f"tmux pane {pane} is gone"
     if not runs_in(pid, info["pid"]):
         return "failed", f"tmux pane {pane} doesn't run this session"
     if rec.get("bridgeSessionId"):
         return "ok", "Remote Control is on already"
     if rec.get("status") == "waiting" or rec.get("waitingFor"):
-        return "wait", f"the session waits for a {rec.get('waitingFor') or 'reply'}"
+        return "wait", f"the session is waiting ({rec.get('waitingFor') or 'for a reply'})"
     if info["in_mode"]:
         return "wait", "the pane is in tmux copy mode"
+    if info["synced"]:
+        return "wait", "the window's panes are synchronized (synchronize-panes): keys would reach every pane"
     if time.time() - last_key(info["session"]) < QUIET:
         return "wait", "someone typed in this tmux session in the last 15 s"
     width = info["width"]
@@ -353,26 +402,43 @@ def revive_now(pid, rec):
         return "wait", "no input box on the screen (a dialog or menu is open)"
     if s["mode"] != "prompt":
         return "wait", f"the input box is in {s['mode']} mode"
+    vim = vim_mode()
+    if vim and not s["insert"]:
+        return "wait", "vim mode, and the input box isn't in INSERT mode"
     stashed = False
     if s["kind"] == "draft":
+        last = s["typed"].split()[-1] if s["typed"].split() else ""
+        if vim:
+            return "wait", "a draft on the input line, in vim mode (not stashed there)"
+        if s["typed"].startswith("/") or last.startswith("@"):
+            return "wait", "a draft with a command or file menu open, which hides whether something is stashed"
         if s["stashed"]:
             return "wait", "a draft on the input line and another one in the stash"
+        if not stash_checked(rec.get("version")):
+            return "wait", f"a draft on the input line, and Claude Code {rec.get('version')} wasn't checked for how it shows a stash"
         keys(pane, "C-s")
         s = settle(pane, width, lambda s: s and s["kind"] != "draft" and s["stashed"])
         if not (s and s["kind"] != "draft" and s["stashed"]):
-            return failed(pane, "the draft didn't go to the stash", s)
+            if s and s["kind"] != "draft":  # the line emptied, but no stash shows: pop the draft back
+                keys(pane, "C-s")
+                s = settle(pane, width, lambda s: s and s["kind"] == "draft")
+            return failed(pane, "the draft didn't show up in the stash"
+                          + ("; it's back on the input line" if s and s["kind"] == "draft" else ""), s)
         stashed = True
     cmd = command(rec, width)
     keys(pane, "-l", cmd)
     s = settle(pane, width, lambda s: s and s["typed"] == cmd)
     if not (s and s["typed"] == cmd):
-        if s and s["typed"] and cmd.startswith(s["typed"]):  # take back what was typed, and the draft
-            keys(pane, *["BSpace"] * len(s["typed"]))
-            s = settle(pane, width, lambda s: s and not s["typed"])
-            if stashed and s and not s["typed"] and s["stashed"]:
-                keys(pane, "C-s")
+        s = take_back(pane, width, cmd, stashed)
         return failed(pane, f"the input line didn't read {cmd} after typing it", s)
     time.sleep(0.4)  # let the command menu catch up with the last character
+    # A last look: nobody typed meanwhile, the line still reads the command, and RC didn't come on by itself (the
+    # command would then open its menu instead).
+    s = screen(pane, width)
+    if (time.time() - last_key(info["session"]) < QUIET or not (s and s["typed"] == cmd)
+            or (record(pid) or {}).get("bridgeSessionId")):
+        s = take_back(pane, width, cmd, stashed)
+        return "wait", "something changed while typing (a key, the line or RC); took it back"
     keys(pane, "Enter")
     end, on = time.time() + CONNECT, None
     while not on and time.time() < end:
@@ -408,7 +474,7 @@ def lost_to_switch(off, changes, last, acct):
 def watch():
     """Revive the sessions that lose RC to an account switch."""
     seen = {}  # pid -> {"bridge", "on" (when last seen on)}
-    pending = {}  # pid -> {"off", "on", "bridge", "decided", "why" (last reason to wait)}
+    pending = {}  # pid -> {"off", "on", "bridge", "decided", "why" (last reason to wait), "since" (for GIVE_UP)}
     changes = []  # when the machine's account changed
     acct = machine_account()
     log_event(event="start", account=acct and acct["email"])
@@ -442,7 +508,8 @@ def poll(acct, seen, pending, changes):
             pending.pop(pid, None)
         elif was:
             del seen[pid]
-            pending[pid] = {"off": now, "on": was["on"], "bridge": was["bridge"], "decided": False, "why": None}
+            pending[pid] = {"off": now, "on": was["on"], "bridge": was["bridge"], "decided": False, "why": None,
+                            "since": now}
             log_event(event="rc-off", **describe(pid, rec))
     for pid, p in list(pending.items()):
         rec = recs[pid]
@@ -457,7 +524,9 @@ def poll(acct, seen, pending, changes):
                 del pending[pid]
                 continue
             p["decided"] = True
-        if now - p["off"] > GIVE_UP:
+        if rec.get("status") == "waiting" or rec.get("waitingFor"):
+            p["since"] = now  # a question or permission prompt can wait for hours; the clock starts after it
+        if now - p["since"] > GIVE_UP:
             log_event(event="give-up", **describe(pid, rec), why=p["why"])
             del pending[pid]
             continue
@@ -490,20 +559,35 @@ def targets(args, recs):
 
 def unit_text():
     """The service: `watch`, run by this Python, which can import this package (the environment of a uv tool or
-    pipx install, or cswap's when it came with its rc-revive extra)."""
-    exe = f'"{sys.executable}"' if " " in sys.executable else sys.executable
+    pipx install, or cswap's when it came with its rc-revive extra). A user service's PATH is the system's, so when
+    tmux is elsewhere its directory goes first; and it gets TMUX_TMPDIR, to reach the same tmux server."""
+    def word(s):  # an ExecStart word: systemd's specifiers and variables escaped, quoted when needed
+        s = s.replace("%", "%%").replace("$", "$$")
+        return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"' if re.search(r"[\s\"'\\]", s) else s
+
+    def env(k, v):  # an Environment= line: specifiers escaped (it expands no variables)
+        return 'Environment="' + f"{k}={v}".replace("%", "%%").replace("\\", "\\\\").replace('"', '\\"') + '"\n'
+    where, system = os.path.dirname(shutil.which("tmux") or ""), "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    envs = env("PATH", f"{where}:{system}") if where and where not in system.split(":") else ""
+    envs += env("TMUX_TMPDIR", os.environ["TMUX_TMPDIR"]) if os.environ.get("TMUX_TMPDIR") else ""
     return ("[Unit]\nDescription=Turn Remote Control back on in Claude Code sessions after account switches "
-            f"(rc-revive)\n\n[Service]\nExecStart={exe} -m claude_rc_revive watch\nEnvironment=PYTHONUNBUFFERED=1\n"
-            "Restart=always\nRestartSec=30\n\n[Install]\nWantedBy=default.target\n")
+            f"(rc-revive)\n\n[Service]\nExecStart={word(sys.executable)} -m claude_rc_revive watch\n"
+            f"Environment=PYTHONUNBUFFERED=1\n{envs}Restart=always\nRestartSec=30\n\n[Install]\nWantedBy=default.target\n")
 
 
 def systemctl(*args, check=True):
-    p = subprocess.run(["systemctl", "--user", *args], capture_output=True, text=True)
+    try:
+        p = subprocess.run(["systemctl", "--user", *args], capture_output=True, text=True)
+    except OSError as e:
+        sys.exit(f"systemctl --user {' '.join(args)}: {e} (the service needs systemd)")
     if check and p.returncode != 0:
         sys.exit(f"systemctl --user {' '.join(args)} failed: {p.stderr.strip()}")
 
 
 def install_service():
+    if re.search(r"/\.cache/|^/tmp/", sys.executable):  # uvx, uv run --with, pipx run: gone after a while
+        sys.exit(f"install-service runs from a temporary environment ({sys.executable}), which the service would "
+                 "outlive. Install rc-revive first: uv tool install claude-rc-revive (or pipx install claude-rc-revive)")
     path = HOME / ".config/systemd/user" / UNIT
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(unit_text())
@@ -527,7 +611,10 @@ def main(argv=None, prog="rc-revive"):
     argv = sys.argv[1:] if argv is None else list(argv)
     cmd, args = (argv[0], argv[1:]) if argv else ("", [])
     if cmd == "watch" and not args:
-        watch()
+        try:
+            watch()
+        except KeyboardInterrupt:
+            return 130
     elif cmd == "status" and not args:
         acct, names = machine_account(), emails()
         print(f"machine account: {acct and acct['email']}")
@@ -542,6 +629,7 @@ def main(argv=None, prog="rc-revive"):
         pids = targets(args, recs)
         if not pids:
             sys.exit("no such session")
+        revived = True
         for pid in pids:
             end = time.time() + 120
             while True:
@@ -551,6 +639,8 @@ def main(argv=None, prog="rc-revive"):
                 print(f"{pid}: waiting: {detail}", flush=True)
                 time.sleep(POLL)
             log_event(event=outcome, **describe(pid, recs[pid]), detail=detail, manual=True)
+            revived = revived and outcome == "ok"
+        return 0 if revived else 1
     elif cmd == "screen" and len(args) == 1:
         info = pane_info(args[0])
         print(json.dumps(info and screen(args[0], info["width"])))
