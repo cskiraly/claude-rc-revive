@@ -78,6 +78,9 @@ of every failure goes to `~/.local/state/rc-revive/screens/`.
 ## Caveats
 
 - Only sessions in tmux, and only those using the default config directory (`~/.claude`).
+- A session that is waiting on a permission prompt or a question gets RC back only after you answer it there,
+  since until then its input box isn't showing. After 6 hours rc-revive gives up on it (`rc-revive revive lost`
+  tries again).
 - If you type into a session in the second it takes, your keys and its keys mix. The 15-second quiet check makes
   that unlikely.
 - In a session with an empty input line and a draft of yours in the stash, Claude Code puts that draft back on the
