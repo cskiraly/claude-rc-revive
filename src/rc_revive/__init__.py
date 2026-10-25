@@ -38,7 +38,7 @@ usage:
   {prog} watch              every 5 s, revive the sessions that lost RC to a switch (what the service runs)
   {prog} status             the sessions, their RC state and the account their last RC ran as
   {prog} revive TARGET...   revive now: a pid, tmux pane (%N), tmux session name, or "lost" (every
-                            session whose last RC ran as an account other than the current one)
+  {pad}                    session whose last RC ran as an account other than the current one)
   {prog} screen PANE        how the input box of a pane reads (for testing)
   {prog} install-service    run `watch` as a systemd user service, now and after every login
   {prog} uninstall-service  stop that service and remove it
@@ -559,9 +559,9 @@ def main(argv=None, prog="rc-revive"):
     elif cmd == "uninstall-service" and not args:
         uninstall_service()
     elif cmd in ("-h", "--help", "help"):
-        print(USAGE.format(prog=prog))
+        print(USAGE.format(prog=prog, pad=" " * len(prog)))
     elif cmd in ("-V", "--version"):
         print(f"rc-revive {__version__}")
     else:
-        sys.exit(USAGE.format(prog=prog))
+        sys.exit(USAGE.format(prog=prog, pad=" " * len(prog)))
     return 0
