@@ -1,5 +1,5 @@
 [project]
-name = "rc-revive"
+name = "claude-rc-revive"
 dynamic = ["version"]
 description = "Turn Claude Code's Remote Control back on in tmux sessions after the claude.ai account changes"
 readme = "README.md"
@@ -19,21 +19,21 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/cskiraly/rc-revive"
-Issues = "https://github.com/cskiraly/rc-revive/issues"
+Homepage = "https://github.com/cskiraly/claude-rc-revive"
+Issues = "https://github.com/cskiraly/claude-rc-revive/issues"
 
 [project.scripts]
-rc-revive = "rc_revive:main"
+rc-revive = "claude_rc_revive:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.version]
-path = "src/rc_revive/__init__.py"
+path = "src/claude_rc_revive/__init__.py"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/rc_revive"]
+packages = ["src/claude_rc_revive"]
 
 [dependency-groups]
 dev = ["pytest>=8"]

@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-import rc_revive as rr
+import claude_rc_revive as rr
 
 HERE = Path(__file__).parent
 SCREENS = json.loads((HERE / "screens.json").read_text())  # panes captured with Claude Code 2.1.308, text replaced
@@ -157,10 +157,10 @@ def test_the_typed_command_with_the_name():
 # --- the service and the command line ---------------------------------------------------------------------------
 
 def test_the_service_runs_this_python(monkeypatch):
-    monkeypatch.setattr(rr.sys, "executable", "/home/u/.local/share/uv/tools/rc-revive/bin/python")
-    assert "\nExecStart=/home/u/.local/share/uv/tools/rc-revive/bin/python -m rc_revive watch\n" in rr.unit_text()
+    monkeypatch.setattr(rr.sys, "executable", "/home/u/.local/share/uv/tools/claude-rc-revive/bin/python")
+    assert "\nExecStart=/home/u/.local/share/uv/tools/claude-rc-revive/bin/python -m claude_rc_revive watch\n" in rr.unit_text()
     monkeypatch.setattr(rr.sys, "executable", "/opt/my tools/bin/python")
-    assert '\nExecStart="/opt/my tools/bin/python" -m rc_revive watch\n' in rr.unit_text()
+    assert '\nExecStart="/opt/my tools/bin/python" -m claude_rc_revive watch\n' in rr.unit_text()
 
 
 def test_install_and_uninstall_service(tmp_path, monkeypatch):
@@ -189,7 +189,7 @@ def test_usage_names_the_command_it_runs_as():
 
 
 def test_the_package_runs_as_a_module():
-    p = subprocess.run([sys.executable, "-m", "rc_revive", "--version"], capture_output=True, text=True)
+    p = subprocess.run([sys.executable, "-m", "claude_rc_revive", "--version"], capture_output=True, text=True)
     assert p.returncode == 0 and p.stdout.strip() == f"rc-revive {rr.__version__}"
 
 

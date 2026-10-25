@@ -493,7 +493,7 @@ def unit_text():
     pipx install, or cswap's when it came with its rc-revive extra)."""
     exe = f'"{sys.executable}"' if " " in sys.executable else sys.executable
     return ("[Unit]\nDescription=Turn Remote Control back on in Claude Code sessions after account switches "
-            f"(rc-revive)\n\n[Service]\nExecStart={exe} -m rc_revive watch\nEnvironment=PYTHONUNBUFFERED=1\n"
+            f"(rc-revive)\n\n[Service]\nExecStart={exe} -m claude_rc_revive watch\nEnvironment=PYTHONUNBUFFERED=1\n"
             "Restart=always\nRestartSec=30\n\n[Install]\nWantedBy=default.target\n")
 
 

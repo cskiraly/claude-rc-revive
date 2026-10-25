@@ -11,7 +11,7 @@
 # 2. a draft plus an older stash: revive must refuse to type (it would overwrite the stash).
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
-R() { PYTHONPATH="$here/../src" python3 -m rc_revive "$@"; } # this checkout's rc-revive
+R() { PYTHONPATH="$here/../src" python3 -m claude_rc_revive "$@"; } # this checkout's rc-revive
 CLAUDE=${CLAUDE:-claude}
 DIR=${RC_REVIVE_TEST_DIR:-$PWD}
 T=rc-revive-test
@@ -101,7 +101,7 @@ sleep 0.5
 tmux send-keys -t "$pane" -l "second draft"
 sleep 0.8
 echo "  screen: $(scr)"
-out=$(PYTHONPATH="$here/../src" timeout 20 python3 -m rc_revive revive "$T" 2>&1 | head -1)
+out=$(PYTHONPATH="$here/../src" timeout 20 python3 -m claude_rc_revive revive "$T" 2>&1 | head -1)
 echo "  revive: $out"
 case $out in *"another one in the stash"*) echo "  refused, as it should" ;; *) fail "expected a refusal" ;; esac
 [ "$(rec bridgeSessionId)" = "None" ] || fail "RC came on although it shouldn't have"

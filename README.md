@@ -1,4 +1,4 @@
-# rc-revive
+# claude-rc-revive
 
 Turn Claude Code's Remote Control back on after the claude.ai account changes.
 
@@ -9,9 +9,10 @@ Claude Code stops RC in every session that has it:
 > signed-in claude.ai account or organization changed on this machine — run /remote-control to start a session for
 > the current account
 
-Nothing starts it again, so you have to type `/remote-control` in each session. rc-revive does that for you: it
-watches the sessions, and in each one that lost RC to a switch it types `/remote-control <session name>` into the
-session's tmux pane. That starts RC under the new account, titled with the session's name.
+Nothing starts it again, so you have to type `/remote-control` in each session. claude-rc-revive does that for you.
+Its command, `rc-revive`, watches the sessions, and in each one that lost RC to a switch it types
+`/remote-control <session name>` into the session's tmux pane. That starts RC under the new account, titled with the
+session's name.
 
 **Experimental.** It reads Claude Code's screen and session files, which a new Claude Code version can change; it
 then waits or fails, logged, rather than typing blind. Tested with Claude Code 2.1.308 and 2.1.310. Not affiliated
@@ -22,11 +23,11 @@ with Anthropic.
 Linux with systemd, tmux, Python 3.10 or newer, and Claude Code sessions running in tmux.
 
 ```
-uv tool install rc-revive         # or: pipx install rc-revive
+uv tool install claude-rc-revive  # or: pipx install claude-rc-revive
 rc-revive install-service         # a systemd user service that runs `rc-revive watch`
 ```
 
-To install from GitHub instead: `uv tool install git+https://github.com/cskiraly/rc-revive`.
+To install from GitHub instead: `uv tool install git+https://github.com/cskiraly/claude-rc-revive`.
 
 The service runs while you're logged in. To keep it running without a login session (as tmux sessions often do),
 enable lingering once: `sudo loginctl enable-linger $USER`.
@@ -104,7 +105,7 @@ The real fix belongs in Claude Code: after an account change, start RC again for
 
 ```
 rc-revive uninstall-service
-uv tool uninstall rc-revive
+uv tool uninstall claude-rc-revive
 rm -r ~/.local/state/rc-revive
 ```
 
